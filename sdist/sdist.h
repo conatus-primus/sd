@@ -63,6 +63,30 @@ struct punctumRad {
 
 //объединенная точка
 struct punctum: punctumRad, punctumXYZ {
+  punctum(){}
+  punctum(const punctumRad &rad)
+    : punctumRad(rad.fi, rad.lm) {}
+  punctum(const punctumXYZ &xyz)
+    : punctumXYZ(xyz.x, xyz.y, xyz.z) {}
+};
+
+//точка на арке
+struct punctumOnArcus : punctum {
+  //номер арки
+  int idArcus;
+};
+
+//точка в контуре
+struct punctumOnAmbitus : punctumOnArcus {
+  //идентификатор контура
+  int idAmbitus;
+  //расстояние в рад от базовой точки до точки контура
+  double distRad;
+  punctumOnAmbitus &operator=(const punctumRad &p) {
+    fi = p.fi;
+    lm = p.lm;
+    return *this;
+  }
 };
 
 //класс плоскости проходящей через центр сферы
@@ -452,12 +476,40 @@ public:
     else
       return withShift;
   }
+  //сортировка точек по заданному направлению от базовой точки по возрастанию + 
+  //в противоположном направлении по возрастанию
+  static void sort(const punctumXYZ &inputPoint, 
+    const std::vector<punctumOnAmbitus> &inputPuncta, 
+    const double &directRad,    
+    std::vector<punctumOnAmbitus> &outputPunctaProDirection, 
+    std::vector<punctumOnAmbitus> &outputPunctaContraDirection
+  );
+  //сортировка точек по заданному направлению от базовой точки по возрастанию + 
+  //в противоположном направлении по возрастанию
+  static void sort(
+    const double &fiRad, 
+    const double &lmRad,     
+    const std::vector<punctumOnAmbitus> &inputPuncta, 
+    const double &directRad,    
+    std::vector<punctumOnAmbitus> &outputPunctaProDirection, 
+    std::vector<punctumOnAmbitus> &outputPunctaContraDirection
+  ) {
+    punctumXYZ inputPoint = operations::geo2xyz(punctumRad(fiRad,lmRad));
+    sort(inputPoint, 
+        inputPuncta, 
+        directRad,    
+        outputPunctaProDirection, 
+        outputPunctaContraDirection
+    );
+  }
+
   static double EPS;
 };
 
 //класс арки
 class arcus {
 public:
+
   //
   arcus (const punctum *pnt1_, const punctum *pnt2_)
     : m_pnt1(pnt1_), m_pnt2(pnt2_) {
@@ -511,38 +563,32 @@ public:
   const punctum *p1() const { return m_pnt1; }
   const punctum *p2() const { return m_pnt2; }
 
-private:
-
   //определить лежит ли точка на дуге
   bool inArcus(const punctumXYZ &xyz) {
     //смотрим на проекционные координаты и считаем простое вхождение точки в отрезок
     //считаем что точка лежит на плоскости и на большой дуге!
     return operations::pointInSegmentXYZ(*m_pnt1, *m_pnt2, xyz);
   }
+
 private:
   const punctum *m_pnt1, *m_pnt2;
   planum m_planum; 
 };
 
-//точка на арке
-struct pointInArc {
-  //
-  punctumXYZ  xyz;  
-  //
-  punctumRad  geo;
-  //номер арки
-  int arcNum;
-};
-
 //класс контура
 class ambitus {
 public:
-  ambitus() {}
+  /////////////////////////////////////////////////////////////////////
+  ambitus(int id_) : idAmbitus(id_) {}
   //
   void append(const double &fi, const double &lm);
   //
   //передается признак замыкания
   void prepare(const bool &bClose);
+  /////////////////////////////////////////////////////////////////////
+
+
+  /////////////////////////////////////////////////////////////////////
   //пересечение контура с большим кругом проходящим через заданную точку в заданном направлении
   //направление расчитывается от направления на север по часовой стрелке
   //distanceRad - на сколько отступать в заданном направлении для построения большого круга
@@ -550,27 +596,46 @@ public:
   void intersecare(
     const double &fiRad, const double &lmRad, 
     const double &directRad,    
-    std::vector<pointInArc> *outputPoints,
+    std::vector<punctumOnAmbitus> *outputPoints,
     const double &distanceRad = M_PI/180./60.
    );
   //пересечение контура с плоскостью проходящей через центр координат
   void intersecare(const planum &inputPlanum, 
     const punctumXYZ &inputPoint,
-    std::vector<pointInArc> *outputPoints
+    std::vector<punctumOnAmbitus> *outputPoints
    );
-  //кол-во точек
+  /////////////////////////////////////////////////////////////////////
+
+  /////////////////////////////////////////////////////////////////////
+  //найти минимальное расстояние до контура - обход с шагом в градусы по кругу
+  //медленная функция но надежная
+  bool slowMinDistance(
+    const punctumRad &inputPoint,
+    punctumRad &outputPoint,
+    double &distRad,
+    const double &angleStepGrad = 1.
+   );
+  /////////////////////////////////////////////////////////////////////
+
+  /////////////////////////////////////////////////////////////////////
+  //кол-во точек в контуре
   int pointsCount() const;
   //кол-во арок
   int arcusCount() const;
   //получить одну точку по номеру
   bool point(int number, punctum &p) const;
+  /////////////////////////////////////////////////////////////////////
 
 private:
+  //идентификатор контура
+  int idAmbitus;
   //массив точек
   std::vector<punctum> vPunctum;
   //арки из массива точек
   std::vector<arcus> vArcus;
 };
+
+
 
 };//
 

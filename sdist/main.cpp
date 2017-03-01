@@ -42,7 +42,7 @@ void test1() {
   double lm0[] = {0};
   double directRad = {0};
 
-  SD::ambitus a;
+  SD::ambitus a(0);
   for(int i=0; i<sizeof(fi)/sizeof(double); ++i) {    
     a.append(fi[i],lm[i]);
   }
@@ -62,12 +62,12 @@ void test1() {
     //построение плоскости проходящей через центр сферы
     SD::planum inputPlanum = SD::operations::planumCrossZero(xyz0, xyz1);
 
-    std::vector<SD::pointInArc> outputPoints;
+    std::vector<SD::punctumOnAmbitus> outputPoints;
     a.intersecare(inputPlanum,xyz0,&outputPoints);
 
     for(unsigned j=0; j<outputPoints.size(); ++j) {
-      const SD::pointInArc &p = outputPoints[j];
-      qDebug() << p.arcNum << p.geo.fi << p.geo.lm;
+      const SD::punctumOnAmbitus &p = outputPoints[j];
+      qDebug() << p.idArcus << p.fi << p.lm;
     }
   }
 }
@@ -82,7 +82,7 @@ void test2() {
   double lm0[] = {M_PI/4};
   double directStep = 5;
 
-  SD::ambitus a;
+  SD::ambitus a(0);
   a.append(fi[1],lm[1]);
   a.append(fi[2],lm[2]);
   a.prepare(false);
@@ -97,12 +97,12 @@ void test2() {
       qDebug() << "--------------------------------";
       qDebug() << "direct=" << k << " {fi,lm}=" <<  fi0[i]/M_PI*180. << "," << lm0[i]/M_PI*180.;
 
-      std::vector<SD::pointInArc> outputPoints;
+      std::vector<SD::punctumOnAmbitus> outputPoints;
       
       a.intersecare(fi0[i],lm0[i],directRad,&outputPoints);
       for(unsigned j=0; j<outputPoints.size(); ++j) {
-        const SD::pointInArc &p = outputPoints[j];
-        qDebug() << p.arcNum << ") " << p.geo.fi/M_PI*180 << p.geo.lm/M_PI*180;
+        const SD::punctumOnAmbitus &p = outputPoints[j];
+        qDebug() << p.idArcus << ") " << p.fi/M_PI*180 << p.lm/M_PI*180;
       }
     }
   }

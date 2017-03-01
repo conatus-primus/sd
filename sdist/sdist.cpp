@@ -252,7 +252,7 @@ void SD::ambitus::prepare(const bool &bClose) {
 void SD::ambitus::intersecare(
   const double &fiRad, const double &lmRad, 
   const double &directRad,    
-  std::vector<pointInArc> *outputPoints,
+  std::vector<punctumOnAmbitus> *outputPoints,
   const double &distanceRad
   ) {
 
@@ -274,19 +274,21 @@ void SD::ambitus::intersecare(
 //пересечение контура с плоскостью проходящей через центр координат
 void SD::ambitus::intersecare(const planum &inputPlanum, 
   const punctumXYZ &inputPoint,
-  std::vector<pointInArc> *outputPoints
+  std::vector<punctumOnAmbitus> *outputPoints
   ) {
   bool bIntersect = false;
   for(unsigned  i=0; i<vArcus.size(); i++) {
     //пересечение дуги с плоскостью проходящей через центр координат
-    pointInArc output;
-    if(!vArcus[i].intersecare(inputPlanum, inputPoint, output.xyz))
+    punctumOnAmbitus output;
+    if(!vArcus[i].intersecare(inputPlanum, inputPoint, output))
       continue;
     //
-    output.arcNum = i;
-    output.geo = operations::xyz2geo(output.xyz);
-    output.geo.lm = operations::continuity(
-      (vArcus[i].p1()->lm+vArcus[i].p2()->lm)/2., output.geo.lm);
+    output.distRad = operations::distance(inputPoint,output);
+    output.idArcus = i;
+    output.idAmbitus = idAmbitus;
+    output = operations::xyz2geo(output);
+    output.lm = operations::continuity(
+      (vArcus[i].p1()->lm+vArcus[i].p2()->lm)/2., output.lm);
     outputPoints->push_back(output);
     bIntersect = true;
   }
@@ -307,3 +309,108 @@ bool SD::ambitus::point(int number, punctum &p) const {
   }
   return false;
 }
+
+
+//найти минимальное расстояние до контура 
+bool SD::ambitus::slowMinDistance(
+  const punctumRad &inputPoint,
+  punctumRad &outputPoint,
+  double &distRad,
+  const double &angleStepGrad
+) {
+  std::vector<punctumOnAmbitus> outputPoints;
+  for(double i=0; i<360; i+=angleStepGrad) {
+    SD::ambitus::intersecare(
+      inputPoint.fi, inputPoint.lm, 
+      i/180.*M_PI,    
+      &outputPoints
+    );
+  } 
+  //расчитать расстояния и найти минимальное
+  double distRadMin = DBL_MAX;  
+  SD::punctumXYZ xyz0 = operations::geo2xyz(inputPoint);
+
+  int number=0, numberMin=-1;
+  for(const auto &point: outputPoints) {
+    double distRad = operations::distance(point,xyz0);
+    if(distRad<distRadMin) {
+      distRadMin = distRad;
+      numberMin = number;
+    }
+    number++;
+  }
+  if(numberMin!=-1) {
+    outputPoint = outputPoints[numberMin];
+    distRad = distRadMin;
+    return true;
+  }
+  return false;
+}
+
+//сортировка точек по заданному направлению от базовой точки по возрастанию + 
+//в противоположном направлении по возрастанию
+void SD::operations::sort(const punctumXYZ &inputPointXYZ, 
+  const std::vector<punctumOnAmbitus> &inputPuncta, 
+  const double &directRad,    
+  std::vector<punctumOnAmbitus> &outputPunctaProDirection, 
+  std::vector<punctumOnAmbitus> &outputPunctaContraDirection
+) {
+  if(!inputPuncta.size())
+    return;
+  //находим самое большое расстояние
+  int maxIndex = 0;
+  double maxDistRad = inputPuncta.at(0).distRad;
+  punctumOnAmbitus maxPunctum = inputPuncta.at(0);
+  for(int i=1; i<inputPuncta.size(); i++) {
+    if(maxDistRad<inputPuncta.at(i).distRad) {
+      maxDistRad = inputPuncta.at(i).distRad;
+      maxPunctum = inputPuncta.at(i);
+      maxIndex = i;
+    }
+  }
+
+  //смотрим точка лежит по заданному направлению или против
+  punctumRad inputPointRad = operations::xyz2geo(inputPointXYZ);
+  //нахождение точки по направлению на заданном расстоянии в рад
+  SD::punctumRad punctumRadMaxPro = SD::operations::toDirection(
+    inputPointRad, directRad, maxDistRad);
+
+  SD::punctumRad punctumRadMaxContra = SD::operations::toDirection(
+    inputPointRad, directRad+M_PI, maxDistRad);
+
+  //смотрим совпадают координаты с исходными или сильно расходятся?
+  SD::punctumXYZ punctumXYZMaxPro = operations::geo2xyz(punctumRadMaxPro);  
+  double distPro = operations::distance(inputPuncta.at(maxIndex),punctumXYZMaxPro);
+
+  SD::punctumXYZ punctumXYZMaxContra = operations::geo2xyz(punctumRadMaxContra);  
+  double distContra = operations::distance(inputPuncta.at(maxIndex),punctumXYZMaxContra);
+
+  std::vector<punctumOnAmbitus> *thisOutputPunctaProDirection = NULL;
+  std::vector<punctumOnAmbitus> *thisOutputPunctaContraDirection = NULL;
+  SD::punctumXYZ punctumXYZMax;
+
+  if(distPro<distContra) {
+    //максимально удаленная точка по направлению
+    thisOutputPunctaProDirection    = &outputPunctaProDirection;
+    thisOutputPunctaContraDirection = &outputPunctaContraDirection;
+    punctumXYZMax = punctumXYZMaxPro;
+  } else {
+    //максимально удаленная точка против направления
+    thisOutputPunctaProDirection    = &outputPunctaContraDirection;
+    thisOutputPunctaContraDirection = &outputPunctaProDirection;
+    punctumXYZMax = punctumXYZMaxContra;
+  }
+
+  //строим арку
+  punctum p1(punctumXYZMax), p2(inputPointXYZ);
+  arcus outputArc(&p1, &p2);
+
+  //бежим по точкам и смотрим попадают они в арку (базовая точка-самая удаленная точка)
+  for(const auto &p: inputPuncta) {
+    if(outputArc.inArcus(p)) 
+      thisOutputPunctaProDirection->push_back(p);
+    else 
+      thisOutputPunctaContraDirection->push_back(p);
+  }
+}
+
