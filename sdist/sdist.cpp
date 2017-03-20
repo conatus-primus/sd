@@ -27,7 +27,7 @@
 //**************************************************************************************//
 
 #include "sdist.h"
-
+#include <iostream>
 
 double SD::operations::EPS = 1e-10;
 
@@ -65,20 +65,6 @@ void SphereInverse(double pt1[],double pt2[],double *azi,double *dist);
 #include <stdlib.h>
 #include <math.h>
 
-void SphereInverse(double pt1[], double pt2[], double *azi, double *dist)
-{
-  double x[3], pt[2];
-
-  SpherToCart(pt2, x);
-  Rotate(x, pt1[1], 2);
-  Rotate(x, M_PI_2 - pt1[0], 1);
-  CartToSpher(x, pt);
-  *azi = M_PI - pt[1];
-  *dist = M_PI_2 - pt[0];
-
-  return;
-}
-
 void SphereDirect(double pt1[], double azi, double dist, double pt2[])
 {
   double pt[2], x[3];
@@ -91,75 +77,6 @@ void SphereDirect(double pt1[], double azi, double dist, double pt2[])
   CartToSpher(x, pt2);
 
   return;
-}
-
-int SphereAngular(double pt1[], double pt2[], double azi13, double azi23,
-		  double pt3[])
-{
-  double azi12, dist12, azi21, dist13;
-  double cos_beta1, sin_beta1, cos_beta2, sin_beta2, cos_dist12, sin_dist12;
-
-  SphereInverse(pt2, pt1, &azi21, &dist12);
-  SphereInverse(pt1, pt2, &azi12, &dist12);
-  cos_beta1 = cos(azi13 - azi12);
-  sin_beta1 = sin(azi13 - azi12);
-  cos_beta2 = cos(azi21 - azi23);
-  sin_beta2 = sin(azi21 - azi23);
-  cos_dist12 = cos(dist12);
-  sin_dist12 = sin(dist12);
-
-  if (sin_beta1 == 0. && sin_beta2 == 0.)     // Решение - любая точка
-    return -1;				      //   на большом круге Q1-Q2.
-  else if (sin_beta1 == 0.) {
-    pt3[0] = pt2[0];			      // Решение - точка Q2.
-    pt3[1] = pt2[1];
-    return 0;
-  } else if (sin_beta2 == 0.) {		      // Решение - точка Q1.
-    pt3[0] = pt1[0];
-    pt3[1] = pt1[1];
-    return 0;
-  } else if (sin_beta1 * sin_beta2 < 0.) {    // Лучи Q1-Q3 и Q2-Q3 направлены
-    if (fabs(sin_beta1) >= fabs(sin_beta2)) { //   в разные полусферы.
-      cos_beta2 = -cos_beta2;		      // Выберем ближайшее решение:
-      sin_beta2 = -sin_beta2;		      //   развернём луч Q2-Q3 на 180°;
-    } else {				      //     иначе
-      cos_beta1 = -cos_beta1;		      //   развернём луч Q1-Q3 на 180°.
-      sin_beta1 = -sin_beta1;
-    }
-  }
-  dist13 = atan2(fabs(sin_beta2) * sin_dist12,
-		 cos_beta2 * fabs(sin_beta1)
-		 + fabs(sin_beta2) * cos_beta1 * cos_dist12);
-  SphereDirect(pt1, azi13, dist13, pt3);
-
-  return 0;
-}
-
-int SphereLinear(double pt1[], double pt2[], double dist13, double dist23,
-		 int clockwise, double pt3[])
-{
-  double azi12, dist12, azi13;
-  double cos_beta1;
-
-  if (dist13 == 0.) {			      // Решение - точка Q1.
-    pt3[0] = pt1[0];
-    pt3[1] = pt1[1];
-    return 0;
-  } else if (dist23 == 0.) {		      // Решение - точка Q2.
-    pt3[0] = pt2[0];
-    pt3[1] = pt2[1];
-    return 0;
-  }
-
-  SphereInverse(pt1, pt2, &azi12, &dist12);
-  cos_beta1 = (cos(dist23) - cos(dist12) * cos(dist13))
-    / (sin(dist12) * sin(dist13));
-  if (fabs(cos_beta1) > 1.)		      // Решение не существует.
-    return -1;
-  azi13 = clockwise ? azi12 + acos(cos_beta1) : azi12 - acos(cos_beta1);
-  SphereDirect(pt1, azi13, dist13, pt3);
-
-  return 0;
 }
 
 void Rotate(double x[], double a, int i)
@@ -241,10 +158,57 @@ void SD::ambitus::prepare(const bool &bClose) {
 
   //формируем арки
   for(unsigned i=0; i<vPunctum.size()-1; i++) {
-    arcus a(&vPunctum[i],&vPunctum[i+1]);
+    arcus a(vPunctum[i],vPunctum[i+1],vPunctum[i].lm);
     vArcus.push_back(a);
   }
 }
+
+// Return whether first element is greater than the second
+bool less ( const SD::punctumOnAmbitus &elem1, const SD::punctumOnAmbitus &elem2 )
+{
+  return elem1.distRad < elem2.distRad;
+}
+/////////////////////////////////////////////////////////////////////
+//пересечение контура с дугой, заданной 2-мя точками
+//fiRad1, lmRad1 - широта/долгота 1-й точки в рад
+//fiRad2, lmRad2 - широта/долгота 1-й точки в рад
+//fiRad=[-Пи/2,Пи/2], lmRad=[-Пи,Пи] - широта/долгота заданной точки в рад
+//outputPoints - массив точек пересечения
+void SD::ambitus::intersecare(
+  const double &fiRad1, const double &lmRad1, 
+  const double &fiRad2, const double &lmRad2, 
+  std::vector<punctumOnAmbitus> *outputPoints
+  ) {
+  if(!outputPoints)
+    return;
+  //строим плоскость через 2 точки
+  punctumRad g1(fiRad1,lmRad1), g2(fiRad2,lmRad2);
+  punctumXYZ pnt1 = operations::geo2xyz(g1), pnt2 = operations::geo2xyz(g2);
+
+  //построение плоскости проходящей через центр сферы
+  planum inputPlanum = operations::planumCrossZero(pnt1, pnt2);
+
+  //находим точки пересечения
+  intersecare(inputPlanum, pnt1, outputPoints);
+
+  //находим точку ближайшую к начальной по дуге
+  arcus a(pnt1,pnt2,g1.lm);
+  std::vector<punctumOnAmbitus>::iterator it = outputPoints->begin();
+  for(; it != outputPoints->end(); ) {
+    if(a.inArcus(*it)) {
+      it++;
+      continue;
+    }
+    it = outputPoints->erase(it);
+  }
+  
+  if(!outputPoints->size())
+    return;
+
+  //еще раз пробежимся по массиву и найдем ближайшую точку к 1-й
+  std::sort(outputPoints->begin(),outputPoints->end(),less);
+}
+
 //пересечение контура с большим кругом проходящим через заданную точку в заданном направлении
 //направление расчитывается от направления на север по часовой стрелке
 //distanceRad - на сколько отступать в заданном направлении для построения большого круга
@@ -253,8 +217,11 @@ void SD::ambitus::intersecare(
   const double &fiRad, const double &lmRad, 
   const double &directRad,    
   std::vector<punctumOnAmbitus> *outputPoints,
+  int &numberPunctumByDirection,
   const double &distanceRad
   ) {
+  if(!outputPoints)
+    return;
 
   SD::punctumRad g0(fiRad,lmRad);
   SD::punctumRad g1 = SD::operations::toDirection(g0,directRad,distanceRad);
@@ -270,6 +237,37 @@ void SD::ambitus::intersecare(
 
   //пересечение контура с плоскостью проходящей через центр координат
   intersecare(inputPlanum, xyz0, outputPoints);
+  if(!outputPoints->size())
+    return;
+
+  //бежим в заданном направлении строим небольшие дуги и ищем вхождение в дугу первой
+  //же точки, чтобы отследить самое первое пересечение
+  double lmPrev = lmRad;
+  punctum pm0(g0,xyz0);
+  numberPunctumByDirection = -1;
+
+  for(double i=0.5; i<180; i+=0.5) {
+    double distRad = DBL_MAX;
+    SD::punctumRad current = SD::operations::toDirection(
+      g0, directRad,i/180.*M_PI);
+    current.lm = SD::operations::continuity(lmPrev,current.lm);
+    punctum pm1(current,operations::geo2xyz(current));
+    arcus a(pm0,pm1,pm0.lm);
+    for(unsigned k=0; k<outputPoints->size(); ++k) {
+      const punctumOnAmbitus &pnctm = outputPoints->at(k);
+      if(!a.inArcus(pnctm)) 
+        continue;
+      if(distRad<pnctm.distRad)
+        continue;
+      distRad = pnctm.distRad;
+      numberPunctumByDirection = k;
+    }
+    if(numberPunctumByDirection!=-1) {
+      break;
+    }
+    lmPrev = current.lm;
+    pm0 = pm1;
+  }
 }
 //пересечение контура с плоскостью проходящей через центр координат
 void SD::ambitus::intersecare(const planum &inputPlanum, 
@@ -287,30 +285,11 @@ void SD::ambitus::intersecare(const planum &inputPlanum,
     output.idArcus = i;
     output.idAmbitus = idAmbitus;
     output = operations::xyz2geo(output);
-    output.lm = operations::continuity(
-      (vArcus[i].p1()->lm+vArcus[i].p2()->lm)/2., output.lm);
+    output.lm = operations::continuity(vArcus[i].baseLm(), output.lm);
     outputPoints->push_back(output);
     bIntersect = true;
   }
 }
-//кол-во точек
-int SD::ambitus::pointsCount() const {
-  return vPunctum.size();
-}
-//кол-во арок
-int SD::ambitus::arcusCount() const {
-  return vArcus.size();
-}
-//получить одну точку по номеру
-bool SD::ambitus::point(int number, punctum &p) const {
-  if(number<vPunctum.size()) {
-    p = vPunctum.at(number);
-    return true;
-  }
-  return false;
-}
-
-
 //найти минимальное расстояние до контура 
 bool SD::ambitus::slowMinDistance(
   const punctumRad &inputPoint,
@@ -319,11 +298,13 @@ bool SD::ambitus::slowMinDistance(
   const double &angleStepGrad
 ) {
   std::vector<punctumOnAmbitus> outputPoints;
+  int numberPunctumByDirection;
   for(double i=0; i<360; i+=angleStepGrad) {
     SD::ambitus::intersecare(
       inputPoint.fi, inputPoint.lm, 
       i/180.*M_PI,    
-      &outputPoints
+      &outputPoints,
+      numberPunctumByDirection
     );
   } 
   //расчитать расстояния и найти минимальное
@@ -347,70 +328,270 @@ bool SD::ambitus::slowMinDistance(
   return false;
 }
 
-//сортировка точек по заданному направлению от базовой точки по возрастанию + 
-//в противоположном направлении по возрастанию
-void SD::operations::sort(const punctumXYZ &inputPointXYZ, 
-  const std::vector<punctumOnAmbitus> &inputPuncta, 
-  const double &directRad,    
-  std::vector<punctumOnAmbitus> &outputPunctaProDirection, 
-  std::vector<punctumOnAmbitus> &outputPunctaContraDirection
-) {
-  if(!inputPuncta.size())
-    return;
-  //находим самое большое расстояние
-  int maxIndex = 0;
-  double maxDistRad = inputPuncta.at(0).distRad;
-  punctumOnAmbitus maxPunctum = inputPuncta.at(0);
-  for(int i=1; i<inputPuncta.size(); i++) {
-    if(maxDistRad<inputPuncta.at(i).distRad) {
-      maxDistRad = inputPuncta.at(i).distRad;
-      maxPunctum = inputPuncta.at(i);
-      maxIndex = i;
+//алгоритм построения выпуклой оболочки Джарвиса
+namespace jarvise {
+
+struct vv {
+  double x, y;
+  int index;
+  vv(int index_, double x_, double y_) 
+    : index(index_), x(x_), y(y_) {}
+};
+
+//векторное произведение
+double vect(const vv &a1, const vv &a2, const vv &b1, const vv &b2) {
+  return (a2.x - a1.x)*(b2.y-b1.y)-(b2.x-b1.x)*(a2.y-a1.y);
+}
+//квадратное расстояние
+double dist2(const vv &a1, const vv &a2) {
+  return sqrt(a2.x-a1.x)+sqrt(a2.y-a1.y);
+}
+//построение минимальной выпуклой оболочки
+void solve(std::vector<vv> &a, int &k, std::vector<vv> &b) {
+  int i, j, m;
+
+  for( i= 0; i < a.size(); i++) {
+    b.push_back(a[i]);
+  }
+
+  //ищем правую нижнюю точку
+  m=0;
+  for( i= 1; i < a.size(); i++) {
+    if( a[i].y < a[m].y )
+      m = i;
+    else {
+      if( (a[i].y == a[m].y) && (a[i].x > a[m].x) )
+        m=i;
     }
   }
 
-  //смотрим точка лежит по заданному направлению или против
-  punctumRad inputPointRad = operations::xyz2geo(inputPointXYZ);
-  //нахождение точки по направлению на заданном расстоянии в рад
-  SD::punctumRad punctumRadMaxPro = SD::operations::toDirection(
-    inputPointRad, directRad, maxDistRad);
+  //запишем ее в массив b и переставим на первое место в массиве a
+  b[0] = a[m];   
+  a[m] = a[0];   
+  a[0] = b[0];
+  k = 0;
+  int min = 1;
 
-  SD::punctumRad punctumRadMaxContra = SD::operations::toDirection(
-    inputPointRad, directRad+M_PI, maxDistRad);
+  do  {
+    //ищем очередную вершину оболочки
+    for( j=1; j<a.size(); j++) {
+      if ((vect(b[k],a[min],b[k],a[j])<0) ||
+         (  (vect(b[k],a[min],b[k],a[j])<=SD::operations::EPS) &&
+            (dist2(b[k],a[min])< dist2(b[k],a[j]))
+         ))
+        min=j;
+    }
+    k++;
+    if(k==a.size())
+      break;
+    //записана очередная вершина
+    b[k]=a[min];
+    min=0;
+  }
+  while(!((b[k].x == b[0].x) && (b[k].y == b[0].y))); //пока ломаная не замкнется
+}
 
-  //смотрим совпадают координаты с исходными или сильно расходятся?
-  SD::punctumXYZ punctumXYZMaxPro = operations::geo2xyz(punctumRadMaxPro);  
-  double distPro = operations::distance(inputPuncta.at(maxIndex),punctumXYZMaxPro);
+};
 
-  SD::punctumXYZ punctumXYZMaxContra = operations::geo2xyz(punctumRadMaxContra);  
-  double distContra = operations::distance(inputPuncta.at(maxIndex),punctumXYZMaxContra);
+//построение кругового сектора заданного размера
+//выполняется минимальная проверка на корректность входных данных
+//g0 - центр сектора
+//Skm - радиус сектора в км
+//startDirectRad - начальный направляющий угол сектора в рад (от направления на север по часовой стрелке)
+//stopDirectRad - конечный направляющий угол сектора в рад (от направления на север по часовой стрелке)
+//stepRad - шаг в рад, с которым строится ломаная
+//Re - радиус Земли в м
+//vSegment - замкнутая ломаная
+void SD::operations::buildSector2(
+  const SD::punctumRad &g0,
+  const double &Skm, 
+  const double &startDirectRad,
+  const double &stopDirectRad,
+  double const &stepRad,
+  const double &Re,
+  std::vector<SD::punctumRad> &vSegment
+) {
 
-  std::vector<punctumOnAmbitus> *thisOutputPunctaProDirection = NULL;
-  std::vector<punctumOnAmbitus> *thisOutputPunctaContraDirection = NULL;
-  SD::punctumXYZ punctumXYZMax;
+  vSegment.clear();
 
-  if(distPro<distContra) {
-    //максимально удаленная точка по направлению
-    thisOutputPunctaProDirection    = &outputPunctaProDirection;
-    thisOutputPunctaContraDirection = &outputPunctaContraDirection;
-    punctumXYZMax = punctumXYZMaxPro;
-  } else {
-    //максимально удаленная точка против направления
-    thisOutputPunctaProDirection    = &outputPunctaContraDirection;
-    thisOutputPunctaContraDirection = &outputPunctaProDirection;
-    punctumXYZMax = punctumXYZMaxContra;
+  //минимальная проверка на корректность
+  if((Skm==0) || (stepRad<operations::EPS) ||
+    (startDirectRad==stopDirectRad)
+  )
+    return;
+
+  //добавили центральную точку
+  vSegment.push_back(g0);
+
+  //строим длину сегмента
+  double dbSegment = Skm*1000./Re;
+    
+  //добавили левый радиус
+  for(double d=0; d<dbSegment; d+=stepRad) {
+    SD::punctumRad currentPunctum = SD::operations::toDirection(
+      g0, startDirectRad,d);
+    vSegment.push_back(currentPunctum);
+  }
+  
+  //точка начала дуги
+  SD::punctumRad lPunctum = SD::operations::toDirection(
+    g0, startDirectRad, dbSegment);
+
+  //добавили последнюю точку левого радиуса и первую точку дуги
+  vSegment.push_back(lPunctum);
+
+  //точка конца дуги
+  SD::punctumRad rPunctum = SD::operations::toDirection(
+    g0, stopDirectRad, dbSegment);
+
+  //расчитываем угол
+  double angleSegment = SD::operations::directionBy2Points(
+    lPunctum.fi, lPunctum.lm,
+    rPunctum.fi, rPunctum.lm
+  );
+  
+  //расчитываем длину арки
+  double segmentArcLen = SD::operations::distance(
+    SD::operations::geo2xyz(lPunctum),
+    SD::operations::geo2xyz(rPunctum)
+  );
+  
+  //дуга арки
+  int N = 20;
+  double stepRad1 = stepRad;
+  if(segmentArcLen/stepRad<N)
+    stepRad1 = segmentArcLen/N;
+  for(double d=0; d<segmentArcLen; d+=stepRad1) {
+    SD::punctumRad currentPunctum = SD::operations::toDirection(
+      lPunctum, angleSegment,d);
+    vSegment.push_back(currentPunctum);
+  }
+  
+  //добавили последнюю точку дуги
+  vSegment.push_back(rPunctum);
+
+  //считаем правый радиус
+  for(double d=dbSegment; d>=0; d-=stepRad) {
+    SD::punctumRad currentPunctum = SD::operations::toDirection(
+      g0, stopDirectRad,d);
+    vSegment.push_back(currentPunctum);
   }
 
-  //строим арку
-  punctum p1(punctumXYZMax), p2(inputPointXYZ);
-  arcus outputArc(&p1, &p2);
+  //замыкаем центральной точкой
+  vSegment.push_back(g0);
+}
 
-  //бежим по точкам и смотрим попадают они в арку (базовая точка-самая удаленная точка)
-  for(const auto &p: inputPuncta) {
-    if(outputArc.inArcus(p)) 
-      thisOutputPunctaProDirection->push_back(p);
-    else 
-      thisOutputPunctaContraDirection->push_back(p);
+//построение кругового сектора заданного размера
+//выполняется минимальная проверка на корректность входных данных
+//g0 - центр сектора
+//Skm - радиус сектора в км
+//startDirectRad - начальный направляющий угол сектора в рад (от направления на север по часовой стрелке)
+//stopDirectRad - конечный направляющий угол сектора в рад (от направления на север по часовой стрелке)
+//stepRad - шаг в рад, с которым строится ломаная
+//Re - радиус Земли в м
+//vSegment - замкнутая ломаная
+void SD::operations::buildSector(
+  const SD::punctumRad &g0,
+  const double &Skm, 
+  const double &startDirectRad,
+  const double &stopDirectRad,
+  double const &stepRad,
+  const double &Re,
+  std::vector<SD::punctumRad> &vSegment
+) {
+
+  vSegment.clear();
+
+  //минимальная проверка на корректность
+  if((Skm==0) || (stepRad<operations::EPS) ||
+    (startDirectRad==stopDirectRad)
+  )
+    return;
+
+  int N = 20;
+
+  //строим длину сегмента
+  double dbSegment = Skm*1000./Re;
+
+  //точка начала дуги
+  SD::punctumRad lPunctum = SD::operations::toDirection(
+    g0, startDirectRad, dbSegment);
+
+  //точка конца дуги
+  SD::punctumRad rPunctum = SD::operations::toDirection(
+    g0, stopDirectRad, dbSegment);
+
+  //точка середины дуги
+  SD::punctumRad mPunctum = SD::operations::toDirection(
+    g0, (stopDirectRad+startDirectRad)/2, dbSegment);
+
+  //добавили центральную точку
+  vSegment.push_back(g0);
+    
+  //добавили левый радиус
+  for(double d=0; d<dbSegment; d+=stepRad) {
+    SD::punctumRad currentPunctum = SD::operations::toDirection(
+      g0, startDirectRad,d);
+    vSegment.push_back(currentPunctum);
   }
+  
+  //добавили последнюю точку левого радиуса и первую точку дуги
+  vSegment.push_back(lPunctum);
+
+  //расчитываем угол
+  double angleSegment1 = SD::operations::directionBy2Points(
+    lPunctum.fi, lPunctum.lm,
+    mPunctum.fi, mPunctum.lm
+  );
+  //расчитываем длину арки
+  double segmentArcLen1 = SD::operations::distance(
+    SD::operations::geo2xyz(lPunctum),
+    SD::operations::geo2xyz(mPunctum)
+  );
+
+  //дуга арки
+  double stepRad1 = stepRad;
+  if(segmentArcLen1/stepRad<N)
+    stepRad1 = segmentArcLen1/N;
+  for(double d=0; d<segmentArcLen1; d+=stepRad1) {
+    SD::punctumRad currentPunctum = SD::operations::toDirection(
+      lPunctum, angleSegment1,d);
+    vSegment.push_back(currentPunctum);
+  }
+  //добавили последнюю точку дуги
+  vSegment.push_back(mPunctum);
+
+  //расчитываем угол
+  double angleSegment2 = SD::operations::directionBy2Points(
+    mPunctum.fi, mPunctum.lm,
+    rPunctum.fi, rPunctum.lm
+  );
+  //расчитываем длину арки
+  double segmentArcLen2 = SD::operations::distance(
+    SD::operations::geo2xyz(mPunctum),
+    SD::operations::geo2xyz(rPunctum)
+  );
+    
+  //дуга арки
+  double stepRad2 = stepRad;
+  if(segmentArcLen2/stepRad<N)
+    stepRad2 = segmentArcLen2/N;
+  for(double d=0; d<segmentArcLen2; d+=stepRad1) {
+    SD::punctumRad currentPunctum = SD::operations::toDirection(
+      mPunctum, angleSegment2,d);
+    vSegment.push_back(currentPunctum);
+  }  
+  //добавили последнюю точку дуги
+  vSegment.push_back(rPunctum);
+
+  //считаем правый радиус
+  for(double d=dbSegment; d>=0; d-=stepRad) {
+    SD::punctumRad currentPunctum = SD::operations::toDirection(
+      g0, stopDirectRad,d);
+    vSegment.push_back(currentPunctum);
+  }
+
+  //замыкаем центральной точкой
+  vSegment.push_back(g0);
 }
 

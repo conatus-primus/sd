@@ -99,7 +99,8 @@ void test2() {
 
       std::vector<SD::punctumOnAmbitus> outputPoints;
       
-      a.intersecare(fi0[i],lm0[i],directRad,&outputPoints);
+      int numberPunctumByDirection;
+      a.intersecare(fi0[i],lm0[i],directRad,&outputPoints,numberPunctumByDirection);
       for(unsigned j=0; j<outputPoints.size(); ++j) {
         const SD::punctumOnAmbitus &p = outputPoints[j];
         qDebug() << p.idArcus << ") " << p.fi/M_PI*180 << p.lm/M_PI*180;
@@ -110,6 +111,108 @@ void test2() {
 
 int main(int argc, char *argv[])
 {
+  //плоскость проходит через ось у
+  SD::punctumRad r0(M_PI_4,M_PI_2);//-M_PI/6.);
+  SD::punctumXYZ l0 = SD::operations::geo2xyz(r0);
+
+  SD::punctumRad r1 = SD::operations::toDirection(r0,0,M_PI/180.);
+  SD::punctumXYZ l1 = SD::operations::geo2xyz(r1);
+  //SD::punctumXYZ l1(1,0,0);
+
+  /*
+  SD::planum p01 = SD::operations::planumCrossZero(l0,l1);
+  double alfa, beta, gama;
+  p01.angles_eyler(alfa, beta, gama);
+  qDebug() << SD::operations::G(alfa) << SD::operations::G(beta);
+  
+  SD::punctumXYZ xyz1 = p01.rotateZ(l0,alfa);
+  qDebug() << xyz1.x << xyz1.y << xyz1.z;
+
+  SD::punctumXYZ xyz2 = p01.rotateX(xyz1,beta);
+  qDebug() << xyz2.x << xyz2.y << xyz2.z;
+  /*
+  SD::planum v1;
+  v1.a=-1;
+  v1.b=0;
+  v1.c=0;
+  double alfa, beta, gama;
+  v1.angles_eyler(alfa, beta, gama);
+  qDebug() << SD::operations::G(alfa);
+  SD::punctumXYZ xyz; xyz.x=0;xyz.y=1;xyz.z=0;
+  SD::punctumXYZ xyz1 = v1.rotate(xyz,alfa,0,0);
+  
+  {
+  SD::planum v1;
+  v1.a=1;
+  v1.b=1;
+  v1.c=0;
+  double alfa, beta, gama;
+  v1.angles_eyler(alfa, beta, gama);
+  qDebug() << SD::operations::G(alfa);
+  }
+
+  SD::punctumRad p1(M_PI/4,M_PI/4);
+  SD::punctumRad p2(0,0);
+
+  SD::planum pp = SD::operations::planumCrossZero(
+    SD::operations::geo2xyz(p1),
+    SD::operations::geo2xyz(p2)
+  );
+  double a1 = SD::operations::anglePlanumsRadWithZ0(pp);
+
+
+  bool r1 = pp.contains(SD::operations::geo2xyz(p1), SD::operations::EPS);
+  r1 = pp.contains(SD::operations::geo2xyz(p2), SD::operations::EPS);
+
+  SD::planumRotate rr(pp); 
+
+  SD::punctumXYZ xyz01 = SD::operations::geo2xyz(p1);
+  SD::punctumXYZ xyz02 = SD::operations::geo2xyz(p2);
+
+  SD::punctumXYZ xyz1 = pp.to(xyz01,a1);
+  SD::punctumXYZ xyz2 = pp.to(xyz02,a1);
+  */
+  /*
+  SD::punctumXYZ xyz1 = rr.rotateY(xyz01);
+  SD::punctumXYZ xyz2 = rr.rotateY(xyz02);
+
+  r1 = rr.contains(SD::operations::geo2xyz(p1), SD::operations::EPS);
+  r1 = rr.contains(SD::operations::geo2xyz(p2), SD::operations::EPS);
+  */
+  /*
+  {
+  SD::planum p;
+  p.a = 1;
+  p.b = 1;
+  p.c = 0;
+  double alfa, beta, gamma;
+  p.angles(alfa, beta, gamma);
+  qDebug() << SD::operations::G(alfa) << SD::operations::G(beta) << SD::operations::G(gamma);
+  
+  SD::planumRotate pp;
+  pp.a = 1; pp.b = 0; pp.c = 0;
+  pp.angles();
+
+  std::vector<SD::punctumXYZ> vxyz;
+  for(int i=0; i<360; i+=10) {
+    SD::punctumXYZ xyz0, xyz;
+    xyz0.x=0;
+    xyz0.y = cos(i/180.*M_PI);
+    xyz0.z = sin(i/180.*M_PI);
+
+    xyz.z = xyz0.z;
+    xyz.x = xyz0.y*cos(M_PI/2.);
+    xyz.y = xyz0.y*cos(M_PI/2.);
+
+    if(!pp.contains(xyz, SD::operations::EPS)) {
+      continue;
+    }
+    //SD::punctumXYZ xyz1 = pp.rotateY(xyz);
+    SD::punctumXYZ xyz2 = pp.rotateZ(xyz);
+    //SD::punctumXYZ xyz3 = pp.rotateX(xyz2);
+    qDebug() << xyz2.x << xyz2.y << xyz2.z;
+  }
+  }*/
   test1();
   test2();
   return 0;

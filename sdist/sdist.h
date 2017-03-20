@@ -63,25 +63,25 @@ struct punctumRad {
 
 //объединенная точка
 struct punctum: punctumRad, punctumXYZ {
-  punctum(){}
+  punctum() {};
   punctum(const punctumRad &rad)
     : punctumRad(rad.fi, rad.lm) {}
   punctum(const punctumXYZ &xyz)
     : punctumXYZ(xyz.x, xyz.y, xyz.z) {}
+  punctum(const punctumRad &rad, const punctumXYZ &xyz)
+    : punctumRad(rad.fi, rad.lm) 
+    , punctumXYZ(xyz.x, xyz.y, xyz.z) {}
 };
 
-//точка на арке
-struct punctumOnArcus : punctum {
-  //номер арки
-  int idArcus;
-};
-
-//точка в контуре
-struct punctumOnAmbitus : punctumOnArcus {
+//точка в контуре   
+struct punctumOnAmbitus : punctum {
   //идентификатор контура
   int idAmbitus;
+  //номер арки
+  int idArcus;
   //расстояние в рад от базовой точки до точки контура
   double distRad;
+  //
   punctumOnAmbitus &operator=(const punctumRad &p) {
     fi = p.fi;
     lm = p.lm;
@@ -91,16 +91,49 @@ struct punctumOnAmbitus : punctumOnArcus {
 
 //класс плоскости проходящей через центр сферы
 struct planum {
+  //вектора нормали
   double a, b, c;
+
+  //расчитать положение точки относительно плоскости
+  double value(const punctumXYZ &inputPoint) const {
+    return a*inputPoint.x+b*inputPoint.y+c*inputPoint.z;
+  }
   //проверить лежит ли точка на плоскости
   bool contains(const punctumXYZ &inputPoint, const double &eps) {
     return a*inputPoint.x+b*inputPoint.y+c*inputPoint.z <= eps;
   }
 };
-
+  
 //
 class operations {
-public:
+public:  
+  //угол между направлением на север и дугой, построенной по двум точкам
+  static double directionBy2Points(
+    double fi1, double lm1, 
+    double fi2, double lm2
+  ) {
+    
+    if(fabs(lm1-lm2)<EPS) 
+      return fi1<fi2 ? 0 : M_PI;
+    double L = acos( cos(M_PI/2-fi1)*cos(M_PI/2-fi2) + 
+                     sin(M_PI/2-fi1)*sin(M_PI/2-fi2)*cos(fabs(lm2-lm1))
+      );
+
+    double alfa = acos((cos(M_PI/2-fi2)-cos(M_PI/2-fi1)*cos(L))/(sin(M_PI/2-fi1)*sin(L)));
+    return 
+      lm1>lm2 ? 2*M_PI-alfa : alfa;
+  }
+  //угол между двумя плоскостями
+  static double anglePlanumsRad(const planum &p1, const planum &p2) {
+    double a = (p1.a*p2.a+p1.b*p2.b+p1.c*p2.c)/
+      sqrt(p1.a*p1.a+p1.b*p1.b+p1.c*p1.c)/
+        sqrt(p2.a*p2.a+p2.b*p2.b+p2.c*p2.c);
+    return acos(a);
+  }
+  //перевод из радианов в градусы
+  static double G(const double &rad) {
+    return rad/M_PI*180;
+  }
   //
   static punctumXYZ geo2xyz(const punctumRad &p) {
     punctumXYZ xyz;
@@ -428,31 +461,6 @@ public:
     return 7;
   }
 
-  //проверка на попадание точки внтурь или на концы отрезка
-  static bool pointInSegmentXYZ(const punctumXYZ &xyz1, const punctumXYZ &xyz2, const punctumXYZ &inputXYZ) {
-    
-    double res;
-
-    res = (inputXYZ.x-xyz1.x)*(inputXYZ.x-xyz2.x);    
-    if(fabs(res)>EPS) {
-      if(res>0)
-        return false;
-    }
-    
-    res = (inputXYZ.y-xyz1.y)*(inputXYZ.y-xyz2.y);
-    if(fabs(res)>EPS) {
-      if(res>0)
-        return false;
-    }
-
-    res = (inputXYZ.z-xyz1.z)*(inputXYZ.z-xyz2.z);
-    if(fabs(res)>EPS) {
-      if(res>0)
-        return false;
-    }
-
-    return true;
-  }
   //расстояние в радианах между двумя точками
   static double distance(const punctumXYZ &xyz1, const punctumXYZ &xyz2) {
     double L = sqrt((xyz1.x-xyz2.x)*(xyz1.x-xyz2.x) +
@@ -476,32 +484,59 @@ public:
     else
       return withShift;
   }
-  //сортировка точек по заданному направлению от базовой точки по возрастанию + 
-  //в противоположном направлении по возрастанию
-  static void sort(const punctumXYZ &inputPoint, 
-    const std::vector<punctumOnAmbitus> &inputPuncta, 
-    const double &directRad,    
-    std::vector<punctumOnAmbitus> &outputPunctaProDirection, 
-    std::vector<punctumOnAmbitus> &outputPunctaContraDirection
-  );
-  //сортировка точек по заданному направлению от базовой точки по возрастанию + 
-  //в противоположном направлении по возрастанию
-  static void sort(
-    const double &fiRad, 
-    const double &lmRad,     
-    const std::vector<punctumOnAmbitus> &inputPuncta, 
-    const double &directRad,    
-    std::vector<punctumOnAmbitus> &outputPunctaProDirection, 
-    std::vector<punctumOnAmbitus> &outputPunctaContraDirection
-  ) {
-    punctumXYZ inputPoint = operations::geo2xyz(punctumRad(fiRad,lmRad));
-    sort(inputPoint, 
-        inputPuncta, 
-        directRad,    
-        outputPunctaProDirection, 
-        outputPunctaContraDirection
-    );
+
+  //строим перпендикулярные плоскости проходящие через m_pnt1, m_pnt2
+  //разворачиваем их так чтобы при подстановке m_pnt1 в 2 и при подстановке m_pnt2 в 1 
+  //выполнялось > 0
+  static planum planumNormalCrossZero(const planum &plane, 
+    const punctumXYZ &p1, const punctumXYZ &p2) {
+    planum output;
+    output.a =  det2(p1.y, plane.b, p1.z, plane.c);
+    output.b = -det2(p1.x, plane.a, p1.z, plane.c);
+    output.c =  det2(p1.x, plane.a, p1.y, plane.b);
+    if(output.value(p2)<0) {      
+      output.a *=-1; output.b *=-1; output.c *=-1;      
+    }
+    return output;
   }
+
+  //построение кругового сектора заданного размера
+  //выполняется минимальная проверка на корректность входных данных
+  //g0 - центр сектора
+  //Skm - радиус сектора в км
+  //startDirectRad - начальный направляющий угол сектора в рад (от направления на север по часовой стрелке)
+  //stopDirectRad - конечный направляющий угол сектора в рад (от направления на север по часовой стрелке)
+  //stepRad - шаг в рад, с которым строится ломаная
+  //Re - радиус Земли в м
+  //vSegment - замкнутая ломаная
+  static void operations::buildSector(
+    const SD::punctumRad &g0,
+    const double &Skm, 
+    const double &startDirectRad,
+    const double &stopDirectRad,
+    double const &stepRad,
+    const double &Re,
+    std::vector<SD::punctumRad> &vSegment
+  );
+
+  //построение кругового сектора заданного размера
+  //выполняется минимальная проверка на корректность входных данных
+  //g0 - центр сектора
+  //Skm - радиус сектора в км
+  //startDirectRad - начальный направляющий угол сектора в рад (от направления на север по часовой стрелке)
+  //stopDirectRad - конечный направляющий угол сектора в рад (от направления на север по часовой стрелке)
+  //stepRad - шаг в рад, с которым строится ломаная
+  //Re - радиус Земли в м
+  //vSegment - замкнутая ломаная
+  static void operations::buildSector2(
+    const SD::punctumRad &g0,
+    const double &Skm, 
+    const double &startDirectRad,
+    const double &stopDirectRad,
+    double const &stepRad,
+    const double &Re,
+    std::vector<SD::punctumRad> &vSegment
+  );
 
   static double EPS;
 };
@@ -511,9 +546,15 @@ class arcus {
 public:
 
   //
-  arcus (const punctum *pnt1_, const punctum *pnt2_)
-    : m_pnt1(pnt1_), m_pnt2(pnt2_) {
-    m_planum = operations::planumCrossZero(*m_pnt1,*m_pnt2);
+  arcus (const punctumXYZ &pnt1_, const punctumXYZ &pnt2_, const double &baseLm)
+    : m_pnt1(pnt1_), m_pnt2(pnt2_), m_baseLm(baseLm) {
+    m_planum = operations::planumCrossZero(m_pnt1,m_pnt2);
+
+    //строим перпендикулярные плоскости проходящие через m_pnt1, m_pnt2
+    //разворачиваем их так чтобы при подстановке m_pnt1 в 2 и при подстановке m_pnt2 в 1 
+    //выполнялось > 0
+    m_planum_p1 = operations::planumNormalCrossZero(m_planum, m_pnt1,m_pnt2);
+    m_planum_p2 = operations::planumNormalCrossZero(m_planum, m_pnt2,m_pnt1);
   }
 
   //пересечение дуги с плоскостью проходящей через центр координат
@@ -560,19 +601,25 @@ public:
   }
 
   //
-  const punctum *p1() const { return m_pnt1; }
-  const punctum *p2() const { return m_pnt2; }
+  const punctumXYZ *p1() const { return &m_pnt1; }
+  const punctumXYZ *p2() const { return &m_pnt2; }
+  const double baseLm() { return m_baseLm; }
 
-  //определить лежит ли точка на дуге
-  bool inArcus(const punctumXYZ &xyz) {
-    //смотрим на проекционные координаты и считаем простое вхождение точки в отрезок
-    //считаем что точка лежит на плоскости и на большой дуге!
-    return operations::pointInSegmentXYZ(*m_pnt1, *m_pnt2, xyz);
+  //определить лежит ли точка на дуге, ограниченной точками m_pnt1, m_pnt2
+  bool inArcus(const punctumXYZ &xyz) const {
+    return m_planum_p1.value(xyz) >= 0 && m_planum_p2.value(xyz) >= 0;
   }
 
 private:
-  const punctum *m_pnt1, *m_pnt2;
+  //две точки в декартовых координатах
+  const punctumXYZ m_pnt1, m_pnt2;
   planum m_planum; 
+  //перепндикуляр через 1
+  planum m_planum_p1; 
+  //перепндикуляр через 2
+  planum m_planum_p2; 
+  //широта одного из концов арки для поддержки непрерывности
+  double m_baseLm;
 };
 
 //класс контура
@@ -580,32 +627,53 @@ class ambitus {
 public:
   /////////////////////////////////////////////////////////////////////
   ambitus(int id_) : idAmbitus(id_) {}
-  //
+  /////////////////////////////////////////////////////////////////////
+  //добавить точку в контур
   void append(const double &fi, const double &lm);
-  //
-  //передается признак замыкания
+  //подготовить контур для расчетов
+  //bClose - признак замыкания контура
   void prepare(const bool &bClose);
   /////////////////////////////////////////////////////////////////////
 
-
   /////////////////////////////////////////////////////////////////////
-  //пересечение контура с большим кругом проходящим через заданную точку в заданном направлении
+  //пересечение контура с большим кругом, проходящим через заданную точку в заданном направлении
   //направление расчитывается от направления на север по часовой стрелке
+  //fiRad, lmRad - широта/долгота заданной точки в рад
+  //fiRad=[-Пи/2,Пи/2], lmRad=[-Пи,Пи] - широта/долгота заданной точки в рад
+  //directRad - заданное направление, радианы
+  //outputPoints - массив точек пересечения
+  //numberPunctumByDirection - номер точки в массиве outputPoints, самой первой от базовой
+  //точки по заданному направлению
   //distanceRad - на сколько отступать в заданном направлении для построения большого круга
   //по умолчанию на 1 минуту
   void intersecare(
     const double &fiRad, const double &lmRad, 
     const double &directRad,    
     std::vector<punctumOnAmbitus> *outputPoints,
+    int &numberPunctumByDirection,
     const double &distanceRad = M_PI/180./60.
-   );
+  );
+  /////////////////////////////////////////////////////////////////////
+  //пересечение контура с дугой, заданной 2-мя точками
+  //fiRad1, lmRad1 - широта/долгота 1-й точки в рад
+  //fiRad2, lmRad2 - широта/долгота 1-й точки в рад
+  //fiRad=[-Пи/2,Пи/2], lmRad=[-Пи,Пи] - широта/долгота заданной точки в рад
+  //outputPoints - массив точек пересечения
+  void intersecare(
+    const double &fiRad1, const double &lmRad1, 
+    const double &fiRad2, const double &lmRad2, 
+    std::vector<punctumOnAmbitus> *outputPoints
+  );
+  /////////////////////////////////////////////////////////////////////
   //пересечение контура с плоскостью проходящей через центр координат
-  void intersecare(const planum &inputPlanum, 
+  //inputPlanum - плоскость пересечения
+  //inputPoint - исходная точка, через которую проходит плоскость пересечения
+  //outputPoints - массив точек пересечения
+  void intersecare(
+    const planum &inputPlanum, 
     const punctumXYZ &inputPoint,
     std::vector<punctumOnAmbitus> *outputPoints
-   );
-  /////////////////////////////////////////////////////////////////////
-
+  );
   /////////////////////////////////////////////////////////////////////
   //найти минимальное расстояние до контура - обход с шагом в градусы по кругу
   //медленная функция но надежная
@@ -614,17 +682,13 @@ public:
     punctumRad &outputPoint,
     double &distRad,
     const double &angleStepGrad = 1.
-   );
+  );
   /////////////////////////////////////////////////////////////////////
 
   /////////////////////////////////////////////////////////////////////
-  //кол-во точек в контуре
-  int pointsCount() const;
-  //кол-во арок
-  int arcusCount() const;
-  //получить одну точку по номеру
-  bool point(int number, punctum &p) const;
-  /////////////////////////////////////////////////////////////////////
+  const std::vector<punctum> &puncta() const {
+    return vPunctum;
+  }
 
 private:
   //идентификатор контура
